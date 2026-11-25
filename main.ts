@@ -4,10 +4,10 @@
 // clock, no unseeded randomness, no I/O, no network — the two graded runs
 // produce byte-identical action logs):
 //
-//   A. Sniper: buy a fresh launch (age <= 4 slots) only when the creator has
-//      not sold, few distinct non-creator buyers have piled in (not a bundle
-//      dump in waiting), real SOL is 0.3–30, and the creator's own buy is
-//      small. Fast exit: +12% take-profit, -8% stop, 12-slot max hold.
+//   A. Sniper: DISABLED in the final build — ablation showed it loses
+//      -0.40 SOL on its own and, combined with the dip signal, drags the
+//      total to -0.65 SOL (the two signals compete for the same 5 position
+//      slots). The code path is kept for research, not traded.
 //   B. Momentum: DISABLED after ablation — buying mature curves on
 //      accelerating inflow lost -3.00 SOL on the dev window (win rate 13%,
 //      drawdown 35%), far worse than either other signal, so the flag stays
@@ -92,7 +92,7 @@ const P = {
   buySlipBps: 1500,
   sellSlipBps: 10_000,
   maxOpen: 5,
-  useSniper: true,
+  useSniper: false,
   useMomentum: false,
   useDip: true,
 };

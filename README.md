@@ -18,10 +18,9 @@ the current batch's marks/reserves.
 
 Three signals, one bot:
 
-- **Sniper** — fresh launch (age ≤ 4 slots), creator hasn't sold, creator's own
-  buy small, ≥ 2 distinct buyers already in and price already +2% off create
-  (follow-through, not a dead launch), real SOL 0.3–30. Fast exit:
-  +6% take-profit, −4% stop, 6-slot max hold.
+- **Sniper** — disabled in the final build: on its own it loses −0.40 SOL,
+  and combined with the dip signal it drags the total to −0.65 SOL (the two
+  signals compete for the same 5 position slots). Code path kept for research.
 - **Momentum** — disabled: ablation showed it loses −3.00 SOL on the dev
   window (13% win rate), so it is not traded. The code path stays for research.
 - **Dip** — established curve (real SOL ≥ 10) 8–20% below its 500-slot high
