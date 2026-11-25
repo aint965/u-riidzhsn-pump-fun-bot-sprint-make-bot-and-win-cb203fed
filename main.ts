@@ -129,6 +129,10 @@ interface Held {
 const coins = new Map<Pubkey, Coin>();
 const held = new Map<Pubkey, Held>();
 const pending = new Map<string, { mint: Pubkey; side: string }>();
+const buyKind = new Map<string, string>();
+const sellKind = new Map<string, string>();
+const stat: Record<string, { buys: number; buySol: number; sells: number; sellSol: number }> = {};
+const statOf = (k: string) => (stat[k] ??= { buys: 0, buySol: 0, sells: 0, sellSol: 0 });
 const positions = new Map<Pubkey, { tokens: bigint; costSol: number }>();
 let cashSol = 10;
 let nextClient = 1;
@@ -180,6 +184,14 @@ function onBatch(batch: any): any[] {
   // --- fold fills: drop pending, note harness closes (_complete/_flatten/_writeoff)
   for (const f of batch.fills ?? []) {
     pending.delete(f.client_id);
+    if (f.status === "filled") {
+      const k = buyKind.get(f.client_id) ?? sellKind.get(f.client_id);
+      if (k) {
+        const s = statOf(k);
+        if (f.side === "buy") { s.buys++; s.buySol += Number(f.quote_lamports) / LAMPORTS; }
+        else { s.sells++; s.sellSol += Number(f.quote_lamports) / LAMPORTS; }
+      }
+    }
     if (typeof f.client_id === "string" && f.client_id.startsWith("_")) {
       const h = held.get(f.mint);
       if (h) { held.delete(f.mint); coinOf(f.mint).lastExitSlot = now; }
@@ -289,6 +301,7 @@ function onBatch(batch: any): any[] {
     const id = `o${nextClient++}`;
     orders.push({ side: "sell", client_id: id, mint, token_amount: pos.tokens.toString(), max_slippage_bps: P.sellSlipBps });
     pending.set(id, { mint, side: "sell" });
+    sellKind.set(id, h.kind);
   }
 
   // --- entries
@@ -317,6 +330,7 @@ function onBatch(batch: any): any[] {
     const id = `o${nextClient++}`;
     orders.push({ side: "buy", client_id: id, mint, quote_lamports: lamports.toString(), max_slippage_bps: P.buySlipBps });
     pending.set(id, { mint, side: "buy" });
+    buyKind.set(id, kind);
     freeSol -= amount + txFeeSol;
     entriesThisBatch++;
     const h = held.get(mint);
@@ -436,6 +450,9 @@ async function main(): Promise<void> {
       const orders = onBatch(msg);
       process.stdout.write(JSON.stringify({ type: "reply", seq: msg.seq, orders }) + "\n");
     } else if (msg.type === "done") {
+      const lines = Object.entries(stat).map(([k, s]) =>
+        `${k}: buys=${s.buys} buySol=${s.buySol.toFixed(3)} sells=${s.sells} sellSol=${s.sellSol.toFixed(3)} net=${(s.sellSol - s.buySol).toFixed(3)}`);
+      console.error("[diag] per-kind realized (excl harness closes): " + lines.join(" | "));
       break;
     }
   }
