@@ -19,15 +19,15 @@ the current batch's marks/reserves.
 Three signals, one bot:
 
 - **Sniper** — fresh launch (age ≤ 4 slots), creator hasn't sold, creator's own
-  buy small, few distinct buyers (no bundle dump), real SOL 0.3–30. Fast exit:
-  +12% take-profit, −8% stop, 12-slot max hold.
-- **Momentum** — mature curve (age ≥ 300 slots) with accelerating net buy flow
-  (≥ 1 SOL net in over 30 slots, ≥ 3 buys from ≥ 4 distinct buyers, price up
-  5–50% and within 5% of its window high). Pyramids into strength up to
-  0.3 SOL. Exit: −15% stop, 20% trailing stop armed at +5%, 1200-slot max hold.
-- **Dip** — curve 25–45% below its 2500-slot high while buyers step back in
-  (≥ 3 of the last 6 trades are buys, real SOL ≥ 3). Exit: +15% take-profit,
-  −8% stop, 400-slot max hold.
+  buy small, ≥ 2 distinct buyers already in and price already +2% off create
+  (follow-through, not a dead launch), real SOL 0.3–30. Fast exit:
+  +6% take-profit, −4% stop, 6-slot max hold.
+- **Momentum** — disabled: ablation showed it loses −3.00 SOL on the dev
+  window (13% win rate), so it is not traded. The code path stays for research.
+- **Dip** — established curve (real SOL ≥ 10) 8–20% below its 500-slot high
+  while buyers step back in (≥ 4 of the last 6 trades are buys, latest print a
+  buy, price already recovering ≥ 2% off its 50-slot low). Exit: +8%
+  take-profit, −6% stop, 10% trailing stop armed at +5%, 300-slot max hold.
 
 Every held position also exits at once when the creator sells. Round-trip
 fees are ~1.25% of trade value plus 105,000 lamports per order, so every stake

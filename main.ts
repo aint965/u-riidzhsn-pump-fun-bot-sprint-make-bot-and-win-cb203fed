@@ -8,14 +8,15 @@
 //      not sold, few distinct non-creator buyers have piled in (not a bundle
 //      dump in waiting), real SOL is 0.3–30, and the creator's own buy is
 //      small. Fast exit: +12% take-profit, -8% stop, 12-slot max hold.
-//   B. Momentum: buy a mature curve (age >= 300 slots) on accelerating net
-//      buy flow — net SOL in over 30 slots >= 1, >= 3 buys from >= 4 distinct
-//      buyers, price up 5–50% and within 5% of its window high, newer-half
-//      inflow beating the older half. Pyramid into strength up to 0.3 SOL.
-//      Exit: -15% stop, 20% trailing stop armed at +5%, 1200-slot max hold.
-//   C. Dip: buy a curve 25–45% below its 2500-slot high while buyers are
-//      still stepping in (last trades mostly buys, real SOL >= 3).
-//      Exit: +15% take-profit, -8% stop, 400-slot max hold.
+//   B. Momentum: DISABLED after ablation — buying mature curves on
+//      accelerating inflow lost -3.00 SOL on the dev window (win rate 13%,
+//      drawdown 35%), far worse than either other signal, so the flag stays
+//      off. The code path is kept for research, not traded.
+//   C. Dip: buy an established curve (real SOL >= 10) 8–20% below its
+//      500-slot high while buyers step back in (>= 4 of the last 6 trades are
+//      buys, latest print a buy, price already recovering >= 2% off its
+//      50-slot low). Exit: +8% take-profit, -6% stop, 10% trailing stop
+//      armed at +5%, 300-slot max hold.
 //
 // Every exit also fires at once when the creator sells while held. Fees are
 // ~1.25% of trade value per round trip plus 105,000 lamports per order, so
@@ -54,9 +55,11 @@ const P = {
   sniperMaxRqSol: 30,
   sniperMaxDevBuySol: 2.5,
   sniperMaxBuyers: 4,
-  sniperTp: 0.12,
-  sniperSl: 0.08,
-  sniperMaxHold: 12,
+  sniperMinBuyers: 2,
+  sniperMinRunup: 0.02,
+  sniperTp: 0.06,
+  sniperSl: 0.04,
+  sniperMaxHold: 6,
   // momentum
   momMinAge: 300,
   momWindow: 30,
@@ -73,13 +76,15 @@ const P = {
   momTrailArm: 0.05,
   momMaxHold: 1200,
   // dip
-  dipWindow: 2500,
-  dipMin: 0.25,
-  dipMax: 0.45,
-  dipMinRqSol: 3,
-  dipTp: 0.15,
-  dipSl: 0.08,
-  dipMaxHold: 400,
+  dipWindow: 500,
+  dipMin: 0.08,
+  dipMax: 0.2,
+  dipMinRqSol: 10,
+  dipTp: 0.08,
+  dipSl: 0.06,
+  dipMaxHold: 300,
+  dipTrail: 0.1,
+  dipTrailArm: 0.05,
   // shared
   cooldown: 150,
   maxEntriesPerMint: 2,
@@ -87,6 +92,9 @@ const P = {
   buySlipBps: 1500,
   sellSlipBps: 10_000,
   maxOpen: 5,
+  useSniper: true,
+  useMomentum: false,
+  useDip: true,
 };
 
 type Pubkey = string;
@@ -292,6 +300,7 @@ function onBatch(batch: any): any[] {
     } else {
       if (!exit && value >= cost * (1 + P.dipTp)) exit = true;
       if (!exit && value <= cost * (1 - P.dipSl)) exit = true;
+      if (!exit && h.peakValueSol >= cost * (1 + P.dipTrailArm) && value <= h.peakValueSol * (1 - P.dipTrail)) exit = true;
       if (!exit && now - h.openedSlot >= P.dipMaxHold) exit = true;
     }
     if (!exit) continue;
@@ -374,11 +383,12 @@ function onBatch(batch: any): any[] {
     const price = priceOf(c);
 
     // A. sniper — fresh launch, clean creator, uncrowded
-    if (age <= P.sniperMaxAge && age >= 0) {
+    if (P.useSniper && age <= P.sniperMaxAge && age >= 0) {
       if (
         !c.devSold && c.devBuySol <= P.sniperMaxDevBuySol &&
-        c.buyers.size <= P.sniperMaxBuyers &&
-        c.realSol >= P.sniperMinRqSol && c.realSol <= P.sniperMaxRqSol
+        c.buyers.size >= P.sniperMinBuyers && c.buyers.size <= P.sniperMaxBuyers &&
+        c.realSol >= P.sniperMinRqSol && c.realSol <= P.sniperMaxRqSol &&
+        c.vt0 > 0 && priceOf(c) >= (c.vq0 / c.vt0) * (1 + P.sniperMinRunup)
       ) {
         if (tryBuy(mint, P.stakeSol, "sniper")) continue;
       }
@@ -386,7 +396,7 @@ function onBatch(batch: any): any[] {
     }
 
     // B. momentum — mature curve, accelerating inflow near its high
-    if (age >= P.momMinAge && c.realSol >= P.momMinRqSol && c.realSol <= P.momMaxRqSol) {
+    if (P.useMomentum && age >= P.momMinAge && c.realSol >= P.momMinRqSol && c.realSol <= P.momMaxRqSol) {
       const from = now - P.momWindow;
       const mid = now - P.momWindow / 2;
       let buySol = 0, sellSol = 0, buys = 0, netOld = 0, netNew = 0;
@@ -412,7 +422,7 @@ function onBatch(batch: any): any[] {
     }
 
     // C. dip — sharp drawdown from a 2500-slot high, buyers stepping back in
-    if (age >= P.momMinAge && c.realSol >= P.dipMinRqSol) {
+    if (P.useDip && age >= P.momMinAge && c.realSol >= P.dipMinRqSol) {
       let high = 0;
       for (const tr of c.trades) if (tr.slot > now - P.dipWindow && tr.price > high) high = tr.price;
       if (high > 0) {
@@ -420,7 +430,15 @@ function onBatch(batch: any): any[] {
         if (dd >= P.dipMin && dd <= P.dipMax) {
           let buys = 0, n = 0;
           for (let i = c.trades.length - 1; i >= 0 && n < 6; i--, n++) if (c.trades[i]!.buy) buys++;
-          if (n >= 4 && buys >= 3) {
+          // recovering off the recent low, and the latest print is a buy
+          let low50 = Infinity;
+          for (let i = c.trades.length - 1; i >= 0; i--) {
+            const tr = c.trades[i]!;
+            if (tr.slot <= now - 50) break;
+            if (tr.price < low50) low50 = tr.price;
+          }
+          const lastBuy = c.trades.length > 0 && c.trades[c.trades.length - 1]!.buy;
+          if (n >= 4 && buys >= 4 && lastBuy && low50 !== Infinity && price >= low50 * 1.02) {
             if (tryBuy(mint, P.stakeSol, "dip")) continue;
           }
         }
